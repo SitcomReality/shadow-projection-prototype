@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shadow Projection Prototype</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Noto Sans', sans-serif;
+      overflow: hidden;
+      background: #000;
+    }
+    
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 15px;
+      border-radius: 4px;
+      font-size: 12px;
+      max-width: 250px;
+    }
+    
+    #controls h3 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+    }
+    
+    .control-group {
+      margin-bottom: 8px;
+    }
+    
+    .control-group label {
+      display: block;
+      margin-bottom: 2px;
+      font-weight: 500;
+    }
+    
+    .control-group input[type="range"] {
+      width: 100%;
+    }
+    
+    .control-group input[type="checkbox"] {
+      margin-right: 5px;
+    }
+    
+    .value {
+      color: #666;
+      font-size: 11px;
+    }
+    
+    button {
+      background: #000;
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 11px;
+      margin-top: 5px;
+    }
+    
+    button:hover {
+      background: #333;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  
+  <div id="controls">
+    <h3>Shadow Prototype</h3>
+    <div style="margin-bottom: 12px; font-size: 11px; color: #666;">
+      WASD: Move player<br>
+      Space: Jump object
+    </div>
+    
+    <div class="control-group">
+      <label>
+        <input type="checkbox" id="showDebug" checked>
+        Show debug wireframes
+      </label>
+    </div>
+    
+    <div class="control-group">
+      <label>
+        Shadow Opacity
+        <span class="value" id="opacityValue">0.70</span>
+      </label>
+      <input type="range" id="shadowOpacity" min="0" max="1" step="0.05" value="0.7">
+    </div>
+    
+    <div class="control-group">
+      <label>
+        Light Height
+        <span class="value" id="lightHeightValue">1.8</span>
+      </label>
+      <input type="range" id="lightHeight" min="0.5" max="5" step="0.1" value="1.8">
+    </div>
+    
+    <button id="addObject">Add Random Object</button>
+    <button id="resetScene">Reset Scene</button>
+  </div>
+  
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://esm.sh/three@0.160.0",
+      "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="./main.js"></script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
