@@ -85,35 +85,74 @@ export class ShadowSystem {
       lightPosition.z
     );
     
+    const lp2 = new THREE.Vector2(lightPos.x, lightPos.z);
+    
     this.casters.forEach(caster => {
-      const objPos = caster.position.clone();
+      const objPos = caster.position;
       const groundDist = typeof caster.groundDistance === 'function' 
         ? caster.groundDistance() 
         : 0;
       
-      // Get the four corners of the object's footprint
-      const halfWidth = caster.size.x / 2;
-      const halfDepth = caster.size.y / 2;
-      const objectHeight = caster.height + groundDist;
+      const hw = caster.size.x / 2;
+      const hd = caster.size.y / 2;
       
-      const corners3D = [
-        new THREE.Vector3(objPos.x - halfWidth, objectHeight, objPos.z - halfDepth),
-        new THREE.Vector3(objPos.x + halfWidth, objectHeight, objPos.z - halfDepth),
-        new THREE.Vector3(objPos.x + halfWidth, objectHeight, objPos.z + halfDepth),
-        new THREE.Vector3(objPos.x - halfWidth, objectHeight, objPos.z + halfDepth)
+      // 4 Footprint corners at current height
+      const bCorners = [
+        new THREE.Vector3(objPos.x - hw, groundDist, objPos.z - hd),
+        new THREE.Vector3(objPos.x + hw, groundDist, objPos.z - hd),
+        new THREE.Vector3(objPos.x + hw, groundDist, objPos.z + hd),
+        new THREE.Vector3(objPos.x - hw, groundDist, objPos.z + hd)
       ];
+
+      // Identify lateral indices (leftmost and rightmost from light's perspective)
+      let leftIdx = 0;
+      let rightIdx = 0;
+      let farIdx = 0;
+      let maxDistSq = -1;
+
+      for (let i = 0; i < 4; i++) {
+        let isLeft = true;
+        let isRight = true;
+        const v1 = new THREE.Vector2(bCorners[i].x - lp2.x, bCorners[i].z - lp2.y);
+        
+        for (let j = 0; j < 4; j++) {
+          if (i === j) continue;
+          const v2 = new THREE.Vector2(bCorners[j].x - lp2.x, bCorners[j].z - lp2.y);
+          const cross = v1.x * v2.y - v1.y * v2.x; // 2D cross product
+          if (cross < 0) isLeft = false;  // Something is to the left
+          if (cross > 0) isRight = false; // Something is to the right
+        }
+        if (isLeft) leftIdx = i;
+        if (isRight) rightIdx = i;
+        
+        const dSq = lp2.distanceToSquared(new THREE.Vector2(bCorners[i].x, bCorners[i].z));
+        if (dSq > maxDistSq) {
+          maxDistSq = dSq;
+          farIdx = i;
+        }
+      }
+
+      const tHeight = groundDist + caster.height;
+      const getT = (idx) => new THREE.Vector3(bCorners[idx].x, tHeight, bCorners[idx].z);
+
+      // Construct a 5-sided shadow polygon:
+      // Project the two lateral bottom corners and the three non-near top corners.
+      const v0 = this.projectPointToGround(bCorners[leftIdx], lightPos);
+      const v1 = this.projectPointToGround(bCorners[rightIdx], lightPos);
+      const v2 = this.projectPointToGround(getT(rightIdx), lightPos);
+      const v3 = this.projectPointToGround(getT(farIdx), lightPos);
+      const v4 = this.projectPointToGround(getT(leftIdx), lightPos);
       
-      // Project each corner onto the ground plane
-      const shadowCorners = corners3D.map(corner => 
-        this.projectPointToGround(corner, lightPos)
-      );
+      this.updateShadowGeometry(caster.shadowMesh, [v0, v1, v2, v3, v4]);
       
-      // Update shadow geometry
-      this.updateShadowGeometry(caster.shadowMesh, shadowCorners);
-      
-      // Update debug lines
       if (this.debugMode && caster.debugLines) {
-        this.updateDebugLines(caster.debugLines, corners3D, shadowCorners, lightPos);
+        this.updateDebugLines(caster.debugLines, [
+          { src: bCorners[leftIdx], dst: v0 },
+          { src: bCorners[rightIdx], dst: v1 },
+          { src: getT(rightIdx), dst: v2 },
+          { src: getT(farIdx), dst: v3 },
+          { src: getT(leftIdx), dst: v4 }
+        ], lightPos);
       }
     });
   }
@@ -141,34 +180,30 @@ export class ShadowSystem {
     return new THREE.Vector2(shadowPoint.x, shadowPoint.z);
   }
   
-  updateShadowGeometry(mesh, corners) {
-    // Create quad from 4 corners
+  updateShadowGeometry(mesh, v) {
+    // Create pentagon from 5 points using a triangle fan (3 triangles)
     const positions = new Float32Array([
-      corners[0].x, corners[0].y, 0,
-      corners[1].x, corners[1].y, 0,
-      corners[2].x, corners[2].y, 0,
-      
-      corners[0].x, corners[0].y, 0,
-      corners[2].x, corners[2].y, 0,
-      corners[3].x, corners[3].y, 0
+      v[0].x, v[0].y, 0,  v[1].x, v[1].y, 0,  v[2].x, v[2].y, 0,
+      v[0].x, v[0].y, 0,  v[2].x, v[2].y, 0,  v[3].x, v[3].y, 0,
+      v[0].x, v[0].y, 0,  v[3].x, v[3].y, 0,  v[4].x, v[4].y, 0
     ]);
     
     mesh.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     mesh.geometry.computeBoundingSphere();
   }
   
-  updateDebugLines(lineSegments, corners3D, shadowCorners, lightPos) {
+  updateDebugLines(lineSegments, rays, lightPos) {
     const positions = [];
     
-    // Lines from light to each corner
-    for (let i = 0; i < 4; i++) {
+    rays.forEach(ray => {
+      // Ray from light to caster point
       positions.push(lightPos.x, lightPos.y, lightPos.z);
-      positions.push(corners3D[i].x, corners3D[i].y, corners3D[i].z);
+      positions.push(ray.src.x, ray.src.y, ray.src.z);
       
-      // Line from corner to shadow
-      positions.push(corners3D[i].x, corners3D[i].y, corners3D[i].z);
-      positions.push(shadowCorners[i].x, 0, shadowCorners[i].y);
-    }
+      // Ray from caster point to ground
+      positions.push(ray.src.x, ray.src.y, ray.src.z);
+      positions.push(ray.dst.x, 0, ray.dst.y);
+    });
     
     lineSegments.geometry.setAttribute(
       'position', 
