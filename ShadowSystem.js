@@ -31,7 +31,7 @@ export class ShadowSystem {
     // Create shadow mesh
     const shadowGeometry = new THREE.BufferGeometry();
     caster.shadowMesh = new THREE.Mesh(shadowGeometry, this.shadowMaterial);
-    caster.shadowMesh.rotation.x = -Math.PI / 2;
+    // Removed rotation: we now define geometry directly in world-space XZ coordinates
     caster.shadowMesh.position.y = 0.002;
     this.scene.add(caster.shadowMesh);
     
@@ -182,10 +182,12 @@ export class ShadowSystem {
   
   updateShadowGeometry(mesh, v) {
     // Create pentagon from 5 points using a triangle fan (3 triangles)
+    // Points v are Vector2(x, z). We map them to (x, 0, z) in local space.
+    // Since the mesh itself is at (0, 0.002, 0), this places vertices correctly in the world.
     const positions = new Float32Array([
-      v[0].x, v[0].y, 0,  v[1].x, v[1].y, 0,  v[2].x, v[2].y, 0,
-      v[0].x, v[0].y, 0,  v[2].x, v[2].y, 0,  v[3].x, v[3].y, 0,
-      v[0].x, v[0].y, 0,  v[3].x, v[3].y, 0,  v[4].x, v[4].y, 0
+      v[0].x, 0, v[0].y,  v[1].x, 0, v[1].y,  v[2].x, 0, v[2].y,
+      v[0].x, 0, v[0].y,  v[2].x, 0, v[2].y,  v[3].x, 0, v[3].y,
+      v[0].x, 0, v[0].y,  v[3].x, 0, v[3].y,  v[4].x, 0, v[4].y
     ]);
     
     mesh.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
