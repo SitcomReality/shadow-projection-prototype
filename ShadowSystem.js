@@ -85,8 +85,6 @@ export class ShadowSystem {
       lightPosition.z
     );
     
-    const lp2 = new THREE.Vector2(lightPos.x, lightPos.z);
-    
     this.casters.forEach(caster => {
       const objPos = caster.position;
       const groundDist = typeof caster.groundDistance === 'function' 
@@ -95,66 +93,68 @@ export class ShadowSystem {
       
       const hw = caster.size.x / 2;
       const hd = caster.size.y / 2;
+      const h = caster.height;
       
-      // 4 Footprint corners at current height
-      const bCorners = [
+      // All 8 corners of the box (bottom and top)
+      const corners = [
         new THREE.Vector3(objPos.x - hw, groundDist, objPos.z - hd),
         new THREE.Vector3(objPos.x + hw, groundDist, objPos.z - hd),
         new THREE.Vector3(objPos.x + hw, groundDist, objPos.z + hd),
-        new THREE.Vector3(objPos.x - hw, groundDist, objPos.z + hd)
+        new THREE.Vector3(objPos.x - hw, groundDist, objPos.z + hd),
+        new THREE.Vector3(objPos.x - hw, groundDist + h, objPos.z - hd),
+        new THREE.Vector3(objPos.x + hw, groundDist + h, objPos.z - hd),
+        new THREE.Vector3(objPos.x + hw, groundDist + h, objPos.z + hd),
+        new THREE.Vector3(objPos.x - hw, groundDist + h, objPos.z + hd)
       ];
 
-      // Identify lateral indices (leftmost and rightmost from light's perspective)
-      let leftIdx = 0;
-      let rightIdx = 0;
-      let farIdx = 0;
-      let maxDistSq = -1;
-
-      for (let i = 0; i < 4; i++) {
-        let isLeft = true;
-        let isRight = true;
-        const v1 = new THREE.Vector2(bCorners[i].x - lp2.x, bCorners[i].z - lp2.y);
-        
-        for (let j = 0; j < 4; j++) {
-          if (i === j) continue;
-          const v2 = new THREE.Vector2(bCorners[j].x - lp2.x, bCorners[j].z - lp2.y);
-          const cross = v1.x * v2.y - v1.y * v2.x; // 2D cross product
-          if (cross < 0) isLeft = false;  // Something is to the left
-          if (cross > 0) isRight = false; // Something is to the right
-        }
-        if (isLeft) leftIdx = i;
-        if (isRight) rightIdx = i;
-        
-        const dSq = lp2.distanceToSquared(new THREE.Vector2(bCorners[i].x, bCorners[i].z));
-        if (dSq > maxDistSq) {
-          maxDistSq = dSq;
-          farIdx = i;
-        }
-      }
-
-      const tHeight = groundDist + caster.height;
-      const getT = (idx) => new THREE.Vector3(bCorners[idx].x, tHeight, bCorners[idx].z);
-
-      // Construct a 5-sided shadow polygon:
-      // Project the two lateral bottom corners and the three non-near top corners.
-      const v0 = this.projectPointToGround(bCorners[leftIdx], lightPos);
-      const v1 = this.projectPointToGround(bCorners[rightIdx], lightPos);
-      const v2 = this.projectPointToGround(getT(rightIdx), lightPos);
-      const v3 = this.projectPointToGround(getT(farIdx), lightPos);
-      const v4 = this.projectPointToGround(getT(leftIdx), lightPos);
+      // Project all 8 vertices to the ground plane
+      const projected = corners.map(c => this.projectPointToGround(c, lightPos));
       
-      this.updateShadowGeometry(caster.shadowMesh, [v0, v1, v2, v3, v4]);
+      // The shadow footprint is the convex hull of these projected points
+      const hull = this.getConvexHull(projected);
+      
+      this.updateShadowGeometry(caster.shadowMesh, hull);
       
       if (this.debugMode && caster.debugLines) {
-        this.updateDebugLines(caster.debugLines, [
-          { src: bCorners[leftIdx], dst: v0 },
-          { src: bCorners[rightIdx], dst: v1 },
-          { src: getT(rightIdx), dst: v2 },
-          { src: getT(farIdx), dst: v3 },
-          { src: getT(leftIdx), dst: v4 }
-        ], lightPos);
+        // For debugging, identify which corners define the hull and draw rays
+        const debugRays = [];
+        hull.forEach(hp => {
+          const idx = projected.findIndex(p => p.distanceToSquared(hp) < 0.0001);
+          if (idx !== -1) {
+            debugRays.push({ src: corners[idx], dst: projected[idx] });
+          }
+        });
+        this.updateDebugLines(caster.debugLines, debugRays, lightPos);
       }
     });
+  }
+
+  getConvexHull(points) {
+    if (points.length <= 2) return points;
+    const pts = points.slice().sort((a, b) => a.x !== b.x ? a.x - b.x : a.y - b.y);
+    
+    const cross = (a, b, o) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+    const lower = [];
+    for (let p of pts) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+        lower.pop();
+      }
+      lower.push(p);
+    }
+
+    const upper = [];
+    for (let i = pts.length - 1; i >= 0; i--) {
+      let p = pts[i];
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+        upper.pop();
+      }
+      upper.push(p);
+    }
+
+    lower.pop();
+    upper.pop();
+    return lower.concat(upper);
   }
   
   projectPointToGround(point, lightPos) {
@@ -181,16 +181,22 @@ export class ShadowSystem {
   }
   
   updateShadowGeometry(mesh, v) {
-    // Create pentagon from 5 points using a triangle fan (3 triangles)
-    // Points v are Vector2(x, z). We map them to (x, 0, z) in local space.
-    // Since the mesh itself is at (0, 0.002, 0), this places vertices correctly in the world.
-    const positions = new Float32Array([
-      v[0].x, 0, v[0].y,  v[1].x, 0, v[1].y,  v[2].x, 0, v[2].y,
-      v[0].x, 0, v[0].y,  v[2].x, 0, v[2].y,  v[3].x, 0, v[3].y,
-      v[0].x, 0, v[0].y,  v[3].x, 0, v[3].y,  v[4].x, 0, v[4].y
-    ]);
+    if (v.length < 3) {
+      mesh.visible = false;
+      return;
+    }
+    mesh.visible = true;
+
+    // Convert polygon to triangle fan
+    const positions = [];
+    for (let i = 1; i < v.length - 1; i++) {
+      positions.push(v[0].x, 0, v[0].y);
+      positions.push(v[i].x, 0, v[i].y);
+      positions.push(v[i+1].x, 0, v[i+1].y);
+    }
     
-    mesh.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    mesh.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    mesh.geometry.attributes.position.needsUpdate = true;
     mesh.geometry.computeBoundingSphere();
   }
   
